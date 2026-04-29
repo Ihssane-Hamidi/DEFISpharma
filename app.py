@@ -19,6 +19,9 @@ from data import (
 )
 from utils import detect_oil_rallies
 
+
+
+
 # ── PAGES ─────────────────────────────────────────────────────────────────────
 from pages.accueil     import layout as layout_accueil
 from pages.societe     import layout as layout_societe,     register_callbacks as cb_societe
@@ -28,7 +31,15 @@ from pages.ols         import layout as layout_ols,         register_callbacks a
 from pages.strategique import layout as layout_strategique, register_callbacks as cb_strategique
 from pages.composite   import layout as layout_composite,   register_callbacks as cb_composite
 
-
+@server.before_request
+def require_login():
+    allowed = ('/login', '/logout', '/_dash-layout',
+               '/_dash-component-suites', '/assets')
+    # Laisser passer les assets Dash et la page login
+    if request.path.startswith(('/_dash', '/assets', '/login', '/logout')):
+        return
+    if not current_user.is_authenticated:
+        return redirect(url_for('login'))
 # ══════════════════════════════════════════════════════════════════════════════
 # FLASK + LOGIN
 # ══════════════════════════════════════════════════════════════════════════════
