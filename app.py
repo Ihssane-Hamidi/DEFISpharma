@@ -19,9 +19,6 @@ from data import (
 )
 from utils import detect_oil_rallies
 
-
-
-
 # ── PAGES ─────────────────────────────────────────────────────────────────────
 from pages.accueil     import layout as layout_accueil
 from pages.societe     import layout as layout_societe,     register_callbacks as cb_societe
@@ -31,404 +28,208 @@ from pages.ols         import layout as layout_ols,         register_callbacks a
 from pages.strategique import layout as layout_strategique, register_callbacks as cb_strategique
 from pages.composite   import layout as layout_composite,   register_callbacks as cb_composite
 
-@server.before_request
-def require_login():
-    allowed = ('/login', '/logout', '/_dash-layout',
-               '/_dash-component-suites', '/assets')
-    # Laisser passer les assets Dash et la page login
-    if request.path.startswith(('/_dash', '/assets', '/login', '/logout')):
-        return
-    if not current_user.is_authenticated:
-        return redirect(url_for('login'))
+
 # ══════════════════════════════════════════════════════════════════════════════
-# FLASK + LOGIN
+# FLASK + LOGIN CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 server = Flask(__name__)
-server.secret_key = 'ihssane123'   # ← change en prod
+server.config.update(SECRET_KEY='votre_cle_secrete_ultra_securisee')
 
 login_manager = LoginManager()
 login_manager.init_app(server)
 login_manager.login_view = '/login'
 
-# Utilisateurs en dur (remplace par une BDD en prod)
-USERS = {
-    'admin':  {'password': 'admin123',  'role': 'Admin',   'display': 'Administrateur'},
-    'analyst':{'password': 'analyst123','role': 'Analyst', 'display': 'I. Hamidi'},
-    'viewer': {'password': 'viewer123', 'role': 'Viewer',  'display': 'Lecteur'},
-}
-
 class User(UserMixin):
-    def __init__(self, username):
-        self.id      = username
-        self.role    = USERS[username]['role']
-        self.display = USERS[username]['display']
+    def __init__(self, id):
+        self.id = id
+
+# Base de données utilisateurs simplifiée
+USER_DB = {"analyst": "tpi2025"}
 
 @login_manager.user_loader
-def load_user(username):
-    if username in USERS:
-        return User(username)
-    return None
+def load_user(user_id):
+    return User(user_id)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CHARGEMENT DONNÉES (au démarrage)
-# ══════════════════════════════════════════════════════════════════════════════
-print("Chargement des données...")
-df_mq      = load_mq()
-prices_mq  = load_mq_prix()
-df_act     = load_act()
-prices_act = load_act_prix()
-brent      = load_brent()
-rallies    = detect_oil_rallies(brent)
-valid_mq   = prepare_valid_mq(df_mq)
-valid_act  = prepare_valid_act(df_act)
-
-# Colonnes dynamiques ACT
-col_score_act   = 'Score global - Performance Score /100'
-col_secteur_act = 'Secteur'
-col_narr_act    = 'Score global - Narrative Score'
-col_trend_act   = 'Score global - Trend Score'
-
-print(f"MQ : {len(valid_mq)} entreprises · ACT : {len(valid_act)} entreprises · Rallies Brent : {len(rallies)}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DASH APP
-# ══════════════════════════════════════════════════════════════════════════════
-app = Dash(
-    __name__,
-    server=server,
-    url_base_pathname='/',
-    suppress_callback_exceptions=True,
-    external_stylesheets=[],   # on utilise assets/style.css
-)
-app.title = "TPI · Analyse Financière"
-
-# Contexte partagé entre toutes les pages
-APP_DATA = {
-    'df_mq':          df_mq,
-    'prices_mq':      prices_mq,
-    'df_act':         df_act,
-    'prices_act':     prices_act,
-    'brent':          brent,
-    'rallies':        rallies,
-    'valid_mq':       valid_mq,
-    'valid_act':      valid_act,
-    'col_score_act':  col_score_act,
-    'col_secteur_act':col_secteur_act,
-    'col_narr_act':   col_narr_act,
-    'col_trend_act':  col_trend_act,
-}
-
-@server.before_request
-def require_login():
-    allowed = ('/login', '/logout', '/_dash-layout',
-               '/_dash-component-suites', '/assets')
-    # Laisser passer les assets Dash et la page login
-    if request.path.startswith(('/_dash', '/assets', '/login', '/logout')):
-        return
-    if not current_user.is_authenticated:
-        return redirect(url_for('login'))
-# ══════════════════════════════════════════════════════════════════════════════
-# LAYOUT
-# ══════════════════════════════════════════════════════════════════════════════
-NAV_ITEMS = [
-    ('Accueil',                     'accueil',     ''),
-    ('Société',                     'societe',     str(len(valid_mq))),
-    ('Panel Quintiles',             'panel',       ''),
-    ('Analyse Brent',               'brent',       ''),
-    ('Régression OLS',              'ols',         ''),
-    ('Narrative / Trend',           'strategique', ''),
-    ('Score Composite',             'composite',   ''),
-]
-
-def sidebar(username='', role='', display=''):
-    initials = ''.join([p[0].upper() for p in display.split()[:2]]) if display else 'TPI'
-    return html.Div(className='sidebar', children=[
-
-        # Header logo
-        html.Div(className='sidebar-header', children=[
-            html.Div(className='logo-row', children=[
-                html.Div('T', className='logo-mark'),
-                html.Div([
-                    html.Div('TPI · Finance', className='logo-text'),
-                    html.Div('Analyse 2025',  className='logo-sub'),
-                ]),
-            ]),
-        ]),
-
-        # Dataset toggle
-        html.Div('Référentiel', className='ds-section'),
-        html.Div(className='ds-toggle', children=[
-            html.Div(
-                dcc.RadioItems(
-                    id='radio-dataset',
-                    options=[
-                        {'label': 'MQ',  'value': 'mq'},
-                        {'label': 'ACT', 'value': 'act'},
-                    ],
-                    value='mq',
-                    inline=True,
-                    inputStyle={'display': 'none'},
-                    labelStyle={
-                        'flex': '1', 'textAlign': 'center',
-                        'padding': '5px 6px', 'fontSize': '11px',
-                        'cursor': 'pointer', 'borderRadius': '4px',
-                        'color': '#8b949e',
-                    },
-                    labelClassName='ds-btn',
-                )
-            ),
-        ]),
-
-        # Navigation
-        html.Div('Vues', className='nav-section-label'),
-        *[
-            dcc.Link(
-                href=f'/{page}',
-                className='nav-link',
-                id=f'nav-{page}',
-                children=[
-                    html.Span(label),
-                    html.Span(badge, className='nav-badge') if badge else None,
-                ],
-            )
-            for label, page, badge in NAV_ITEMS[:4]
-        ],
-
-        html.Div('Modèles', className='nav-section-label'),
-        *[
-            dcc.Link(
-                href=f'/{page}',
-                className='nav-link',
-                id=f'nav-{page}',
-                children=[html.Span(label)],
-            )
-            for label, page, badge in NAV_ITEMS[4:]
-        ],
-
-        # User footer
-        html.Div(className='sidebar-footer', children=[
-            html.Div(className='user-card', children=[
-                html.Div(initials, className='avatar'),
-                html.Div([
-                    html.Div(display or username, className='user-name'),
-                    html.Div(role, className='user-role'),
-                ]),
-                html.A('↩', href='/logout', className='logout-btn'),
-            ]),
-        ]),
-    ])
-
-
-def topbar(page_name='Accueil', dataset_label='Management Quality', badge_class='dataset-badge-mq'):
-    return html.Div(className='topbar', children=[
-        html.Div(className='breadcrumb', children=[
-            html.Span('TPI'),
-            html.Span('/', className='breadcrumb-sep'),
-            html.Span(dataset_label, id='breadcrumb-dataset'),
-            html.Span('/', className='breadcrumb-sep'),
-            html.Span(page_name, className='breadcrumb-active', id='breadcrumb-page'),
-        ]),
-        html.Div(className='topbar-actions', children=[
-            html.Span(dataset_label, className=badge_class, id='dataset-badge'),
-        ]),
-    ])
-
-
-app.layout = html.Div([
-    dcc.Location(id='url', refresh=False),
-    dcc.Store(id='store-dataset', data='mq', storage_type='session'),
-    dcc.Store(id='store-page',    data='accueil'),
-    html.Div(id='app-container'),
-])
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CALLBACKS
-# ══════════════════════════════════════════════════════════════════════════════
-
-@app.callback(
-    Output('store-dataset', 'data'),
-    Input('radio-dataset', 'value'),
-    prevent_initial_call=True,
-)
-def update_dataset_store(value):
-    return value
-
-
-@app.callback(
-    Output('app-container', 'children'),
-    Input('url', 'pathname'),
-    State('store-dataset', 'data'),
-)
-def route(pathname, dataset):
-    """Routing principal — affiche la bonne page selon l'URL."""
-
-    # Page login (gérée par Flask, mais fallback Dash)
-    if pathname in ('/', '/login', None):
-        pathname = '/accueil'
-
-    is_mq = (dataset != 'act')
-    valid        = valid_mq   if is_mq else valid_act
-    prices       = prices_mq  if is_mq else prices_act
-    score_col    = 'Score_global_MQ' if is_mq else col_score_act
-    secteur_col  = 'Macro_Secteur'   if is_mq else col_secteur_act
-    quintile_col = 'Quintile_MQ'     if is_mq else 'Quintile_ACT'
-    pct_col      = 'MQ_percentile'   if is_mq else 'Score_percentile'
-
-    dataset_label = 'Management Quality' if is_mq else 'ACT — Transition Carbone'
-    badge_class   = 'dataset-badge-mq'   if is_mq else 'dataset-badge-act'
-
-    page_map = {
-        '/accueil':     ('Accueil',           layout_accueil),
-        '/societe':     ('Société',           layout_societe),
-        '/panel':       ('Panel Quintiles',   layout_panel),
-        '/brent':       ('Analyse Brent',     layout_brent),
-        '/ols':         ('Régression OLS',    layout_ols),
-        '/strategique': ('Narrative / Trend', layout_strategique),
-        '/composite':   ('Score Composite',   layout_composite),
-    }
-
-    page_name, layout_fn = page_map.get(pathname, ('Accueil', layout_accueil))
-
-    # Contexte passé à chaque page
-    ctx = {**APP_DATA,
-           'is_mq': is_mq, 'valid': valid, 'prices': prices,
-           'score_col': score_col, 'secteur_col': secteur_col,
-           'quintile_col': quintile_col, 'pct_col': pct_col,
-           'dataset_label': dataset_label,
-    }
-
-    return html.Div(className='app-shell', children=[
-        sidebar(
-            username=current_user.id if current_user.is_authenticated else '',
-            role=current_user.role   if current_user.is_authenticated else '',
-            display=current_user.display if current_user.is_authenticated else '',
-        ),
-        html.Div(className='main-content', children=[
-            topbar(page_name, dataset_label, badge_class),
-            html.Div(className='page-content', children=[
-                dcc.Loading(
-                    type='circle',
-                    color='#1f6feb',
-                    children=layout_fn(ctx),
-                ),
-            ]),
-        ]),
-    ])
-
-
-# ── Callbacks des pages ────────────────────────────────────────────────────────
-cb_societe(app,    APP_DATA)
-cb_brent(app,      APP_DATA)
-cb_ols(app,        APP_DATA)
-cb_strategique(app, APP_DATA)
-cb_composite(app,  APP_DATA)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ROUTES FLASK (login / logout)
-# ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTES FLASK (LOGIN/LOGOUT) ───────────────────────────────────────────────
 @server.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '').strip()
-        user_data = USERS.get(username)
-        if user_data and user_data['password'] == password:
-            user = User(username)
-            login_user(user, remember=True)
+        username = request.form.get('username')
+        password = request.form.get('password')
+        if username in USER_DB and USER_DB[username] == password:
+            login_user(User(username))
             return redirect('/')
-        error = 'Identifiants incorrects.'
-        return _login_page(error)
+        return _login_page(error="Identifiants incorrects")
     return _login_page()
-
 
 @server.route('/logout')
 def logout():
     logout_user()
     return redirect('/login')
 
-
 def _login_page(error=None):
-    error_html = (
-        f'<div class="login-error">{error}</div>' if error else ''
-    )
-    return f"""<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <title>TPI · Connexion</title>
-  <link rel="stylesheet" href="/assets/style.css">
-</head>
-<body>
-<div class="login-shell">
-  <div class="login-card">
-    <div class="login-logo">
-      <div class="logo-mark">T</div>
-      <div>
-        <div class="logo-text">TPI · Finance</div>
-        <div class="logo-sub">Analyse 2025</div>
-      </div>
-    </div>
-    <div class="login-title">Connexion</div>
-    <div class="login-sub">Accès réservé aux membres TPI</div>
-    {error_html}
-    <form method="POST">
-      <label class="login-label">Identifiant</label>
-      <input class="login-input" type="text" name="username" placeholder="ex: analyst" autofocus>
-      <label class="login-label">Mot de passe</label>
-      <input class="login-input" type="password" name="password" placeholder="••••••••">
-      <button class="login-btn" type="submit">Se connecter</button>
-    </form>
-  </div>
-</div>
-</body>
-</html>"""
-
+    error_html = f'<div style="color: #f85149; text-align: center; margin-bottom: 15px;">{error}</div>' if error else ''
+    return f"""
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <title>TPI · Connexion</title>
+        <style>
+            body {{ background: #0d1117; color: #e6edf3; font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }}
+            .login-card {{ background: #161b22; padding: 30px; border-radius: 8px; border: 1px solid #30363d; width: 320px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }}
+            .login-title {{ font-size: 1.2rem; font-weight: 600; margin-bottom: 20px; text-align: center; color: #58a6ff; }}
+            .login-input {{ width: 100%; padding: 12px; margin: 8px 0; background: #0d1117; border: 1px solid #30363d; color: white; border-radius: 6px; box-sizing: border-box; }}
+            .login-btn {{ width: 100%; padding: 12px; background: #238636; border: none; color: white; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 15px; }}
+            .login-btn:hover {{ background: #2ea043; }}
+        </style>
+    </head>
+    <body>
+        <div class="login-card">
+            <div class="login-title">TPI · Analyse Financière</div>
+            {error_html}
+            <form method="POST">
+                <input class="login-input" type="text" name="username" placeholder="Identifiant" autofocus required>
+                <input class="login-input" type="password" name="password" placeholder="Mot de passe" required>
+                <button class="login-btn" type="submit">Se connecter</button>
+            </form>
+        </div>
+    </body>
+    </html>
+    """
 
 # ══════════════════════════════════════════════════════════════════════════════
-# LANCEMENT
+# DASH APP INITIALIZATION
 # ══════════════════════════════════════════════════════════════════════════════
-@server.route('/debug')
-def debug():
-    import traceback
-    lines = []
+app = Dash(
+    __name__,
+    server=server,
+    external_stylesheets=[dbc.themes.DARKLY],
+    suppress_callback_exceptions=True,
+    title='TPI Analyse Financière'
+)
 
-    # 1. Test chargement données
-    lines.append(f"valid_mq : {len(valid_mq)} lignes")
-    lines.append(f"valid_act : {len(valid_act)} lignes")
-    lines.append(f"Colonnes MQ : {list(valid_mq.columns)}")
-    lines.append(f"Colonnes ACT : {list(valid_act.columns)}")
+# Chargement global des données
+try:
+    prices_mq = load_mq_prix()
+    df_mq     = load_mq()
+    valid_mq  = prepare_valid_mq(df_mq)
 
-    # 2. Test OLS MQ
-    from utils import prepare_ols_data, run_ols, winsorize
-    try:
-        dep = 'Rendement_2025'
-        df_test = valid_mq[['Score_global_MQ', 'Macro_Secteur', dep,
-                              'LogMarketCap', 'BookToMarket', 'Quintile_MQ']].dropna()
-        lines.append(f"OLS MQ df_test : {len(df_test)} lignes après dropna")
-        df_p = prepare_ols_data(df_test, 'Score_global_MQ', 'Macro_Secteur')
-        m = run_ols(df_p, dep, 'Macro_Secteur', 'simple')
-        lines.append(f"OLS MQ résultat : {m}")
-    except Exception as e:
-        lines.append(f"OLS MQ ERREUR : {traceback.format_exc()}")
+    prices_act = load_act_prix()
+    df_act     = load_act()
+    valid_act  = prepare_valid_act(df_act)
 
-    # 3. Test OLS ACT
-    try:
-        dep = 'Rendement_2025'
-        df_test = valid_act[[col_score_act, col_secteur_act, dep,
-                              'LogMarketCap', 'BookToMarket']].dropna()
-        lines.append(f"OLS ACT df_test : {len(df_test)} lignes après dropna")
-    except Exception as e:
-        lines.append(f"OLS ACT ERREUR : {traceback.format_exc()}")
+    brent      = load_brent()
+    rallies    = detect_oil_rallies(brent)
+    
+    APP_DATA = {{
+        'mq':  {{'valid': valid_mq,  'prices': prices_mq}},
+        'act': {{'valid': valid_act, 'prices': prices_act}},
+        'brent': brent,
+        'rallies': rallies
+    }}
+except Exception as e:
+    print(f"Erreur fatale lors du chargement des données: {{e}}")
+    APP_DATA = {{}}
 
-    # 4. Valeurs Rendement_2025
-    lines.append(f"Rendement_2025 MQ sample : {valid_mq['Rendement_2025'].dropna().head().tolist()}")
+# ── LAYOUT DYNAMIQUE (SÉCURISÉ) ────────────────────────────────────────────────
+def serve_layout():
+    # Vérification de l'authentification
+    if not current_user.is_authenticated:
+        return html.Div([
+            dcc.Location(id='url-login', pathname='/login', refresh=True)
+        ])
 
-    return '<br>'.join(lines)
+    return html.Div([
+        dcc.Location(id='url', refresh=False),
+        
+        # Sidebar
+        html.Div(className='sidebar', children=[
+            html.Div(className='sidebar-header', children=[
+                html.Div("TPI", className='logo-mark'),
+                html.Div("Analyse Financière", className='sidebar-title')
+            ]),
+            
+            html.Div(className='sidebar-section', children=[
+                html.Div("RÉFÉRENTIEL", className='sidebar-label'),
+                dcc.RadioItems(
+                    id='dataset-selector',
+                    options=[
+                        {{'label': ' MQ (Management Quality)', 'value': 'mq'}},
+                        {{'label': ' ACT (Transition Carbone)', 'value': 'act'}}
+                    ],
+                    value='mq',
+                    className='custom-radio'
+                ),
+            ]),
+            
+            html.Div(className='sidebar-section', children=[
+                html.Div("NAVIGATION", className='sidebar-label'),
+                dbc.Nav([
+                    dbc.NavLink("Accueil", href="/", active="exact"),
+                    dbc.NavLink("Fiche Société", href="/societe", active="exact"),
+                    dbc.NavLink("Panel Quintiles", href="/panel", active="exact"),
+                    dbc.NavLink("Analyse Stratégique", href="/strategique", active="exact"),
+                    dbc.NavLink("Score Composite", href="/composite", active="exact"),
+                    dbc.NavLink("Régression OLS", href="/ols", active="exact"),
+                    dbc.NavLink("Impact Brent", href="/brent", active="exact"),
+                ], vertical=True, pills=True),
+            ]),
+            
+            # Bouton de déconnexion en bas de la sidebar
+            html.Div(style={{'marginTop': 'auto', 'padding': '20px'}}, children=[
+                html.Hr(style={{'borderColor': '#30363d'}}),
+                html.A("Déconnexion", href="/logout", className='logout-link', 
+                       style={{'color': '#f85149', 'textDecoration': 'none', 'fontSize': '12px'}})
+            ])
+        ]),
 
+        # Contenu principal où les pages s'injectent
+        html.Div(className='main-content', id='page-content')
+    ])
 
+app.layout = serve_layout
+
+# ── ROUTER ────────────────────────────────────────────────────────────────────
+@app.callback(
+    Output('page-content', 'children'),
+    [Input('url', 'pathname'),
+     Input('dataset-selector', 'value')]
+)
+def display_page(pathname, d_key):
+    # Sécurité redondante pour les callbacks
+    if not current_user.is_authenticated:
+        return html.Div("Veuillez vous connecter...")
+
+    if not APP_DATA:
+        return html.Div("Erreur : Données non chargées.")
+
+    # Préparation du contexte pour les pages
+    ctx = {{
+        'valid': APP_DATA[d_key]['valid'],
+        'prices': APP_DATA[d_key]['prices'],
+        'brent': APP_DATA['brent'],
+        'rallies': APP_DATA['rallies'],
+        'is_mq': (d_key == 'mq')
+    }}
+
+    # Routage vers les layouts de chaque page
+    if pathname == '/societe':     return layout_societe(ctx)
+    if pathname == '/panel':       return layout_panel(ctx)
+    if pathname == '/brent':       return layout_brent(ctx)
+    if pathname == '/ols':         return layout_ols(ctx)
+    if pathname == '/strategique': return layout_strategique(ctx)
+    if pathname == '/composite':   return layout_composite(ctx)
+    
+    return layout_accueil(ctx)
+
+# ── ENREGISTREMENT DES CALLBACKS SPÉCIFIQUES AUX PAGES ────────────────────────
+cb_societe(app, APP_DATA)
+cb_brent(app, APP_DATA)
+cb_ols(app, APP_DATA)
+cb_strategique(app, APP_DATA)
+cb_composite(app, APP_DATA)
+
+# ── LANCEMENT ─────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    app.run(debug=True, port=8050)
+    app.run_server(debug=True, port=8050)
