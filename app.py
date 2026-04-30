@@ -19,6 +19,11 @@ from data import (
 )
 from utils import detect_oil_rallies
 
+except Exception as e:
+    import traceback
+    traceback.print_exc()  # ← remplace le simple print(e)
+    APP_DATA = {}
+
 # ── PAGES ─────────────────────────────────────────────────────────────────────
 from pages.accueil     import layout as layout_accueil
 from pages.societe     import layout as layout_societe,     register_callbacks as cb_societe
