@@ -6,10 +6,10 @@ TPI · Analyse Financière (Dash + flask-login)
 import dash
 from dash import Dash, dcc, html, Input, Output, State, callback
 import dash_bootstrap_components as dbc
-from flask import Flask, redirect, url_for, request, session
+from flask import Flask, redirect, request
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
-    current_user, login_required,
+    current_user,
 )
 
 from data import (
@@ -19,12 +19,6 @@ from data import (
 )
 from utils import detect_oil_rallies
 
-except Exception as e:
-    import traceback
-    traceback.print_exc()  # ← remplace le simple print(e)
-    APP_DATA = {}
-
-# ── PAGES ─────────────────────────────────────────────────────────────────────
 from pages.accueil     import layout as layout_accueil
 from pages.societe     import layout as layout_societe,     register_callbacks as cb_societe
 from pages.panel       import layout as layout_panel
@@ -44,28 +38,27 @@ login_manager = LoginManager()
 login_manager.init_app(server)
 login_manager.login_view = '/login'
 
-from flask import Flask, redirect, url_for, request, session
-from flask_login import current_user
-
-@server.before_request
-def require_login():
-    # Laisse passer les routes login/logout et les assets Dash
-    allowed = ['/login', '/logout', '/_dash-', '/assets']
-    if any(request.path.startswith(p) for p in allowed):
-        return
-    if not current_user.is_authenticated:
-        return redirect('/login')
 
 class User(UserMixin):
     def __init__(self, id):
         self.id = id
 
-# Base de données utilisateurs simplifiée
+
 USER_DB = {"analyst": "tpi2025"}
+
 
 @login_manager.user_loader
 def load_user(user_id):
     return User(user_id)
+
+
+@server.before_request
+def require_login():
+    allowed = ['/login', '/logout', '/_dash-', '/assets']
+    if any(request.path.startswith(p) for p in allowed):
+        return
+    if not current_user.is_authenticated:
+        return redirect('/login')
 
 
 # ── ROUTES FLASK (LOGIN/LOGOUT) ───────────────────────────────────────────────
@@ -80,13 +73,18 @@ def login():
         return _login_page(error="Identifiants incorrects")
     return _login_page()
 
+
 @server.route('/logout')
 def logout():
     logout_user()
     return redirect('/login')
 
+
 def _login_page(error=None):
-    error_html = f'<div style="color: #f85149; text-align: center; margin-bottom: 15px;">{error}</div>' if error else ''
+    error_html = (
+        f'<div style="color: #f85149; text-align: center; margin-bottom: 15px;">{error}</div>'
+        if error else ''
+    )
     return f"""
     <!DOCTYPE html>
     <html lang="fr">
@@ -94,11 +92,20 @@ def _login_page(error=None):
         <meta charset="UTF-8">
         <title>TPI · Connexion</title>
         <style>
-            body {{ background: #0d1117; color: #e6edf3; font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }}
-            .login-card {{ background: #161b22; padding: 30px; border-radius: 8px; border: 1px solid #30363d; width: 320px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }}
-            .login-title {{ font-size: 1.2rem; font-weight: 600; margin-bottom: 20px; text-align: center; color: #58a6ff; }}
-            .login-input {{ width: 100%; padding: 12px; margin: 8px 0; background: #0d1117; border: 1px solid #30363d; color: white; border-radius: 6px; box-sizing: border-box; }}
-            .login-btn {{ width: 100%; padding: 12px; background: #238636; border: none; color: white; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 15px; }}
+            body {{ background: #0d1117; color: #e6edf3; font-family: -apple-system, sans-serif;
+                    display: flex; justify-content: center; align-items: center;
+                    height: 100vh; margin: 0; }}
+            .login-card {{ background: #161b22; padding: 30px; border-radius: 8px;
+                           border: 1px solid #30363d; width: 320px;
+                           box-shadow: 0 8px 24px rgba(0,0,0,0.5); }}
+            .login-title {{ font-size: 1.2rem; font-weight: 600; margin-bottom: 20px;
+                            text-align: center; color: #58a6ff; }}
+            .login-input {{ width: 100%; padding: 12px; margin: 8px 0;
+                            background: #0d1117; border: 1px solid #30363d;
+                            color: white; border-radius: 6px; box-sizing: border-box; }}
+            .login-btn {{ width: 100%; padding: 12px; background: #238636; border: none;
+                          color: white; border-radius: 6px; cursor: pointer;
+                          font-weight: 600; margin-top: 15px; }}
             .login-btn:hover {{ background: #2ea043; }}
         </style>
     </head>
@@ -107,14 +114,17 @@ def _login_page(error=None):
             <div class="login-title">TPI · Analyse Financière</div>
             {error_html}
             <form method="POST">
-                <input class="login-input" type="text" name="username" placeholder="Identifiant" autofocus required>
-                <input class="login-input" type="password" name="password" placeholder="Mot de passe" required>
+                <input class="login-input" type="text" name="username"
+                       placeholder="Identifiant" autofocus required>
+                <input class="login-input" type="password" name="password"
+                       placeholder="Mot de passe" required>
                 <button class="login-btn" type="submit">Se connecter</button>
             </form>
         </div>
     </body>
     </html>
     """
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DASH APP INITIALIZATION
@@ -127,11 +137,11 @@ app = Dash(
     title='TPI Analyse Financière'
 )
 
-# Chargement global des données
+# ── CHARGEMENT GLOBAL DES DONNÉES ─────────────────────────────────────────────
 try:
-    prices_mq = load_mq_prix()
-    df_mq     = load_mq()
-    valid_mq  = prepare_valid_mq(df_mq)
+    prices_mq  = load_mq_prix()
+    df_mq      = load_mq()
+    valid_mq   = prepare_valid_mq(df_mq)
 
     prices_act = load_act_prix()
     df_act     = load_act()
@@ -139,20 +149,22 @@ try:
 
     brent      = load_brent()
     rallies    = detect_oil_rallies(brent)
-    
-    APP_DATA = {{
-        'mq':  {{'valid': valid_mq,  'prices': prices_mq}},
-        'act': {{'valid': valid_act, 'prices': prices_act}},
-        'brent': brent,
-        'rallies': rallies
-    }}
-except Exception as e:
-    print(f"Erreur fatale lors du chargement des données: {{e}}")
-    APP_DATA = {{}}
 
-# ── LAYOUT DYNAMIQUE (SÉCURISÉ) ────────────────────────────────────────────────
+    APP_DATA = {
+        'mq':      {'valid': valid_mq,  'prices': prices_mq},
+        'act':     {'valid': valid_act, 'prices': prices_act},
+        'brent':   brent,
+        'rallies': rallies,
+    }
+
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    APP_DATA = {}
+
+
+# ── LAYOUT DYNAMIQUE (SÉCURISÉ) ───────────────────────────────────────────────
 def serve_layout():
-    # Vérification de l'authentification
     if not current_user.is_authenticated:
         return html.Div([
             dcc.Location(id='url-login', pathname='/login', refresh=True)
@@ -160,53 +172,56 @@ def serve_layout():
 
     return html.Div([
         dcc.Location(id='url', refresh=False),
-        
+
         # Sidebar
         html.Div(className='sidebar', children=[
             html.Div(className='sidebar-header', children=[
                 html.Div("TPI", className='logo-mark'),
                 html.Div("Analyse Financière", className='sidebar-title')
             ]),
-            
+
             html.Div(className='sidebar-section', children=[
                 html.Div("RÉFÉRENTIEL", className='sidebar-label'),
                 dcc.RadioItems(
                     id='dataset-selector',
                     options=[
-                        {{'label': ' MQ (Management Quality)', 'value': 'mq'}},
-                        {{'label': ' ACT (Transition Carbone)', 'value': 'act'}}
+                        {'label': ' MQ (Management Quality)', 'value': 'mq'},
+                        {'label': ' ACT (Transition Carbone)', 'value': 'act'},
                     ],
                     value='mq',
                     className='custom-radio'
                 ),
             ]),
-            
+
             html.Div(className='sidebar-section', children=[
                 html.Div("NAVIGATION", className='sidebar-label'),
                 dbc.Nav([
-                    dbc.NavLink("Accueil", href="/", active="exact"),
-                    dbc.NavLink("Fiche Société", href="/societe", active="exact"),
-                    dbc.NavLink("Panel Quintiles", href="/panel", active="exact"),
-                    dbc.NavLink("Analyse Stratégique", href="/strategique", active="exact"),
-                    dbc.NavLink("Score Composite", href="/composite", active="exact"),
-                    dbc.NavLink("Régression OLS", href="/ols", active="exact"),
-                    dbc.NavLink("Impact Brent", href="/brent", active="exact"),
+                    dbc.NavLink("Accueil",            href="/",           active="exact"),
+                    dbc.NavLink("Fiche Société",       href="/societe",    active="exact"),
+                    dbc.NavLink("Panel Quintiles",     href="/panel",      active="exact"),
+                    dbc.NavLink("Analyse Stratégique", href="/strategique",active="exact"),
+                    dbc.NavLink("Score Composite",     href="/composite",  active="exact"),
+                    dbc.NavLink("Régression OLS",      href="/ols",        active="exact"),
+                    dbc.NavLink("Impact Brent",        href="/brent",      active="exact"),
                 ], vertical=True, pills=True),
             ]),
-            
-            # Bouton de déconnexion en bas de la sidebar
-            html.Div(style={{'marginTop': 'auto', 'padding': '20px'}}, children=[
-                html.Hr(style={{'borderColor': '#30363d'}}),
-                html.A("Déconnexion", href="/logout", className='logout-link', 
-                       style={{'color': '#f85149', 'textDecoration': 'none', 'fontSize': '12px'}})
+
+            html.Div(style={'marginTop': 'auto', 'padding': '20px'}, children=[
+                html.Hr(style={'borderColor': '#30363d'}),
+                html.A(
+                    "Déconnexion", href="/logout",
+                    className='logout-link',
+                    style={'color': '#f85149', 'textDecoration': 'none', 'fontSize': '12px'}
+                )
             ])
         ]),
 
-        # Contenu principal où les pages s'injectent
         html.Div(className='main-content', id='page-content')
     ])
 
+
 app.layout = serve_layout
+
 
 # ── ROUTER ────────────────────────────────────────────────────────────────────
 @app.callback(
@@ -215,38 +230,37 @@ app.layout = serve_layout
      Input('dataset-selector', 'value')]
 )
 def display_page(pathname, d_key):
-    # Sécurité redondante pour les callbacks
     if not current_user.is_authenticated:
         return html.Div("Veuillez vous connecter...")
 
     if not APP_DATA:
         return html.Div("Erreur : Données non chargées.")
 
-    # Préparation du contexte pour les pages
-    ctx = {{
-        'valid': APP_DATA[d_key]['valid'],
-        'prices': APP_DATA[d_key]['prices'],
-        'brent': APP_DATA['brent'],
+    ctx = {
+        'valid':   APP_DATA[d_key]['valid'],
+        'prices':  APP_DATA[d_key]['prices'],
+        'brent':   APP_DATA['brent'],
         'rallies': APP_DATA['rallies'],
-        'is_mq': (d_key == 'mq')
-    }}
+        'is_mq':   (d_key == 'mq'),
+    }
 
-    # Routage vers les layouts de chaque page
     if pathname == '/societe':     return layout_societe(ctx)
     if pathname == '/panel':       return layout_panel(ctx)
     if pathname == '/brent':       return layout_brent(ctx)
     if pathname == '/ols':         return layout_ols(ctx)
     if pathname == '/strategique': return layout_strategique(ctx)
     if pathname == '/composite':   return layout_composite(ctx)
-    
+
     return layout_accueil(ctx)
 
-# ── ENREGISTREMENT DES CALLBACKS SPÉCIFIQUES AUX PAGES ────────────────────────
+
+# ── ENREGISTREMENT DES CALLBACKS ──────────────────────────────────────────────
 cb_societe(app, APP_DATA)
 cb_brent(app, APP_DATA)
 cb_ols(app, APP_DATA)
 cb_strategique(app, APP_DATA)
 cb_composite(app, APP_DATA)
+
 
 # ── LANCEMENT ─────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
