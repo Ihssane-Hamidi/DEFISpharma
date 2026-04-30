@@ -105,40 +105,33 @@ def load_act_prix():
 @lru_cache(maxsize=None)
 def load_brent():
     filename = 'brent.parquet'
-    
-    # 1. Test Local Mac
+    # Ajoute brent dans FILES et dans GITHUB_RELEASE_URL
     local = os.path.join(LOCAL_DIR, filename)
     if os.path.exists(local):
         df = pd.read_parquet(local)
-        return df['Close']
+    else:
+        project_data = os.path.join(BASE_DIR, 'data', filename)
+        if os.path.exists(project_data):
+            df = pd.read_parquet(project_data)
+        else:
+            url = GITHUB_RELEASE_URL + filename
+            print(f"Téléchargement {filename} depuis GitHub...")
+            r = requests.get(url, timeout=60)
+            r.raise_for_status()  # ← lève une exception si 404 !
+            tmp_path = os.path.join('/tmp', filename)
+            with open(tmp_path, 'wb') as f:
+                f.write(r.content)
+            df = pd.read_parquet(tmp_path)
 
-    # 2. Test Dossier data/ (Render)
-    project_data = os.path.join(BASE_DIR, 'data', filename)
-    if os.path.exists(project_data):
-        df = pd.read_parquet(project_data)
-        return df['Close']
-
-    # 3. Test Racine (au cas où)
-    root_data = os.path.join(BASE_DIR, filename)
-    if os.path.exists(root_data):
-        df = pd.read_parquet(root_data)
-        return df['Close']
-
-    # 4. Fallback : Téléchargement (si les deux autres échouent)
-    try:
-        url = GITHUB_RELEASE_URL + filename
-        print(f"Téléchargement {filename} depuis GitHub...")
-        r = requests.get(url, timeout=30)
-        r.raise_for_status()
-        tmp_path = os.path.join('/tmp', filename)
-        with open(tmp_path, 'wb') as f:
-            f.write(r.content)
-        df = pd.read_parquet(tmp_path)
-        return df['Close']
-    except Exception as e:
-        print(f"ERREUR : Impossible de trouver ou télécharger {filename} : {e}")
-        return pd.Series(dtype=float)
-
+    # Vérifie que la colonne 'Close' existe
+    if 'Close' not in df.columns:
+        print(f"ERREUR : colonnes disponibles dans brent.parquet : {df.columns.tolist()}")
+        raise ValueError("Colonne 'Close' introuvable dans brent.parquet")
+    
+    series = df['Close'].dropna()
+    series.index = pd.to_datetime(series.index)
+    return series
+    
 # ── PRÉPARATION DES DATAFRAMES ────────────────────────────────────────────────
 def prepare_valid_mq(df_mq):
     """Filtre et renomme le DataFrame MQ."""
