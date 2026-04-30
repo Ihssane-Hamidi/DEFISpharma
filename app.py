@@ -38,11 +38,23 @@ from pages.composite   import layout as layout_composite,   register_callbacks a
 # FLASK + LOGIN CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 server = Flask(__name__)
-server.config.update(SECRET_KEY='votre_cle_secrete_ultra_securisee')
+server.config.update(SECRET_KEY='ma-clé-DEFIS')
 
 login_manager = LoginManager()
 login_manager.init_app(server)
 login_manager.login_view = '/login'
+
+from flask import Flask, redirect, url_for, request, session
+from flask_login import current_user
+
+@server.before_request
+def require_login():
+    # Laisse passer les routes login/logout et les assets Dash
+    allowed = ['/login', '/logout', '/_dash-', '/assets']
+    if any(request.path.startswith(p) for p in allowed):
+        return
+    if not current_user.is_authenticated:
+        return redirect('/login')
 
 class User(UserMixin):
     def __init__(self, id):
@@ -54,6 +66,7 @@ USER_DB = {"analyst": "tpi2025"}
 @login_manager.user_loader
 def load_user(user_id):
     return User(user_id)
+
 
 # ── ROUTES FLASK (LOGIN/LOGOUT) ───────────────────────────────────────────────
 @server.route('/login', methods=['GET', 'POST'])
